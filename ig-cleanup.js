@@ -18,6 +18,7 @@
  *  IGCleanup.preview()               // shows who would be unfollowed, touches nothing
  *  await IGCleanup.run({max: 100})   // unfollow up to 100 this session, then stop
  *  IGCleanup.stop()                  // abort a running run()
+ *  IGCleanup.resetDone()             // clear the done-list (use if unfollows silently failed)
  *  IGCleanup.stats()                 // progress
  *
  * State lives in localStorage so you can come back tomorrow and keep going.
@@ -134,6 +135,7 @@
     stats() {
       console.log({ following: S.following.length, followers: S.followers.length, unfollowed_so_far: S.done.length, queue: queue().length, mode: S.mode });
     },
+    resetDone() { S.done = []; save(); console.log('done-list cleared. Run scan() again so the queue matches reality.'); },
     stop() { aborted = true; console.log('stopping after current action...'); },
     async run({ max = 100, minDelay = 25, maxDelay = 60 } = {}) {
       aborted = false;
@@ -152,10 +154,16 @@
           console.error(`[STOP] Instagram pushed back (status ${status}) on @${u.username}. Do NOT retry today. Come back in 24h and use a lower max.`);
           break;
         }
+        // Verify it actually took: IG can answer 200 OK and silently ignore the request (soft block).
+        const fs = json && json.friendship_status;
+        if (!fs || fs.following !== false) {
+          console.error(`[STOP] @${u.username}: IG said OK but you are STILL following them (silent soft-block). Stop for 2-3 days, then retry with a much smaller max.`);
+          break;
+        }
         S.done.push(u.pk);
         n++;
         save();
-        console.log(`[${n}/${q.length}] unfollowed @${u.username}`);
+        console.log(`[${n}/${q.length}] unfollowed @${u.username} (verified)`);
         await sleep(rand(minDelay, maxDelay) * 1000);
         if (n % 10 === 0) {
           const long = rand(180, 360);
